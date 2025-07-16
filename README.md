@@ -1,4 +1,4 @@
-# Simple OS Project
+# pineOS Project
 
 A simple educational operating system with a custom bootloader, kernel, and in-memory filesystem. Includes a shell with basic commands, written in C and x86 assembly, and runs in QEMU.
 
@@ -6,7 +6,7 @@ A simple educational operating system with a custom bootloader, kernel, and in-m
 - Custom bootloader (x86 assembly)
 - Flat binary kernel (C)
 - In-memory filesystem (files and directories)
-- Shell with commands: `ls`, `cd`, `mkdir`, `touch`, `cat`, `echo`, `rm`, `rmdir`, `tree`, `mv`
+- Shell with commands: `ls`, `cd`, `mkdir`, `touch`, `cat`, `echo`, `rm`, `rmdir`, `tree`
 - Minimal process and memory management
 - Runs in QEMU (x86)
 
@@ -54,7 +54,6 @@ A simple educational operating system with a custom bootloader, kernel, and in-m
   - `rm file` — Remove file
   - `rmdir dir` — Remove directory (must be empty)
   - `tree` — Show directory tree
-  - `mv src dest` — Move or rename file/directory
 
 ## Special Notes
 - Only lowercase letters, numbers, and some special characters are supported in the shell (see `kernel/io.c` for details).
