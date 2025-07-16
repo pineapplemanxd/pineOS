@@ -117,6 +117,7 @@ void execute_command(const char* command) {
         vga_puts("  rm       - Remove file\n");
         vga_puts("  rmdir    - Remove directory\n");
         vga_puts("  tree     - Show directory tree\n");
+        vga_puts("  cp       - Copy file\n");
     } else if (strcmp(command, "clear") == 0) {
         vga_clear();
     } else if (strcmp(command, "memory") == 0) {
@@ -232,6 +233,30 @@ void execute_command(const char* command) {
             filesystem_tree("/", 0);
         } else {
             filesystem_tree(path, 0);
+        }
+    } else if (strncmp(command, "cp", 2) == 0) {
+        // Handle cp command
+        const char* args = command + 2;
+        while (*args == ' ') args++; // Skip spaces
+        // Find the first space (separating src from dest)
+        const char* src = args;
+        while (*args && *args != ' ') args++;
+        if (*args == ' ') {
+            char src_buf[256];
+            int src_len = args - src;
+            if (src_len >= 256) src_len = 255;
+            memory_copy(src_buf, src, src_len);
+            src_buf[src_len] = '\0';
+            args++;
+            // Now args points to dest
+            while (*args == ' ') args++;
+            if (*args) {
+                filesystem_cp(src_buf, args);
+            } else {
+                vga_puts("Usage: cp <src> <dest>\n");
+            }
+        } else {
+            vga_puts("Usage: cp <src> <dest>\n");
         }
     } else if (strlen(command) > 0) {
         vga_puts("Unknown command: ");

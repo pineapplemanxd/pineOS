@@ -47,6 +47,7 @@ int filesystem_cd(const char* path);
 int filesystem_pwd(void);
 int filesystem_rm(const char* name);
 int filesystem_rmdir(const char* name);
+int filesystem_cp(const char* src, const char* dest);
 void filesystem_tree(const char* path, int depth);
 
 // Path utilities

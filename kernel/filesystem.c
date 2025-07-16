@@ -456,3 +456,39 @@ void filesystem_tree(const char* path, int depth) {
         child = child->next;
     }
 } 
+
+// Copy a file from src to dest
+int filesystem_cp(const char* src, const char* dest) {
+    file_entry_t* src_file = filesystem_find_file(src);
+    if (!src_file) {
+        vga_puts("Error: Source file not found\n");
+        return -1;
+    }
+    if (src_file->type != FILE_TYPE_FILE) {
+        vga_puts("Error: Source is not a file\n");
+        return -1;
+    }
+    // Read source data
+    char* src_data = src_file->data;
+    int src_size = src_file->size;
+    if (!src_data) {
+        vga_puts("Error: Source file is empty\n");
+        return -1;
+    }
+    // If dest exists and is a directory, error
+    file_entry_t* dest_file = filesystem_find_file(dest);
+    if (dest_file && dest_file->type == FILE_TYPE_DIR) {
+        vga_puts("Error: Destination is a directory\n");
+        return -1;
+    }
+    // Write to destination (creates file if needed)
+    int result = filesystem_write_file(dest, src_data);
+    if (result == 0) {
+        vga_puts("File copied: ");
+        vga_puts(src);
+        vga_puts(" -> ");
+        vga_puts(dest);
+        vga_puts("\n");
+    }
+    return result;
+} 
