@@ -43,7 +43,7 @@ void kernel_init(void) {
     
     // Clear screen and show welcome message
     vga_clear();
-    vga_puts("Simple OS v1.0 with Filesystem\n");
+    vga_puts("pineOS v1.0 with Filesystem\n");
     vga_puts("Initializing...\n");
     
     // Test memory allocation

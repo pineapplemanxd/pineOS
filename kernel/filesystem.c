@@ -21,8 +21,8 @@ void filesystem_init(void) {
     filesystem_mkdir("tmp");
     
     // Create some default files
-    filesystem_write_file("/etc/version", "Simple OS v1.0\n");
-    filesystem_write_file("/etc/motd", "Welcome to Simple OS!\n");
+    filesystem_write_file("/etc/version", "pineOS v1.0\n");
+    filesystem_write_file("/etc/motd", "Welcome to pineOS!\n");
     filesystem_write_file("/home/readme.txt", "This is your home directory.\n");
 }
 
