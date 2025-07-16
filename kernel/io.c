@@ -199,6 +199,17 @@ char keyboard_read(void) {
         case 0x30: return 'b';
         case 0x31: return 'n';
         case 0x32: return 'm';
+        case 0x33: return ',';  // Comma
+        case 0x34: return '.';  // Period
+        case 0x35: return '/';  // Slash
+        case 0x27: return ';';  // Semicolon
+        case 0x28: return '\''; // Apostrophe
+        case 0x1A: return '[';  // Left bracket
+        case 0x1B: return ']';  // Right bracket
+        case 0x0C: return '-';  // Minus
+        case 0x0D: return '=';  // Equals
+        case 0x29: return '`';  // Backtick
+        case 0x2B: return '\\'; // Backslash
         case 0x39: return ' ';
         default: return 0;
     }
