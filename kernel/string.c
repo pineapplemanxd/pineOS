@@ -68,4 +68,61 @@ int strncmp(const char* s1, const char* s2, int n) {
     }
     if (n == 0) return 0;
     return *s1 - *s2;
-} 
+}
+
+int memory_compare(const void* s1, const void* s2, int n) {
+    const unsigned char* p1 = (const unsigned char*)s1;
+    const unsigned char* p2 = (const unsigned char*)s2;
+    
+    while (n > 0) {
+        if (*p1 != *p2) {
+            return *p1 - *p2;
+        }
+        p1++;
+        p2++;
+        n--;
+    }
+    return 0;
+}
+
+char* strstr(const char* haystack, const char* needle) {
+    if (!*needle) return (char*)haystack;
+    
+    while (*haystack) {
+        const char* h = haystack;
+        const char* n = needle;
+        
+        while (*h && *n && *h == *n) {
+            h++;
+            n++;
+        }
+        
+        if (!*n) return (char*)haystack;
+        haystack++;
+    }
+    return 0;
+}
+
+void strcat(char* dest, const char* src) {
+    // Find end of dest string
+    while (*dest) dest++;
+    
+    // Copy src to end of dest
+    while (*src) {
+        *dest = *src;
+        dest++;
+        src++;
+    }
+    *dest = '\0';
+}
+
+char* strrchr(const char* str, char c) {
+    const char* last = 0;
+    while (*str) {
+        if (*str == c) {
+            last = str;
+        }
+        str++;
+    }
+    return (char*)last;
+}

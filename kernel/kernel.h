@@ -15,10 +15,7 @@ void kernel_init(void);
 // Main kernel loop
 void kernel_main(void);
 
-// System calls
-#define SYS_WRITE 1
-#define SYS_READ  2
-#define SYS_EXIT  3
+// System calls are now defined in user.h
 
 // Colors for VGA
 #define VGA_BLACK         0

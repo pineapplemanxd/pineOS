@@ -6,7 +6,7 @@ OBJCOPY = objcopy
 CFLAGS = -m32 -fno-pie -fno-stack-protector -nostdlib -nostdinc -fno-builtin -fno-pic -mno-red-zone
 LDFLAGS = -m elf_i386 -T linker.ld
 
-KERNEL_OBJS = multiboot_header.o kernel/kernel.o kernel/io.o kernel/memory.o kernel/process.o kernel/filesystem.o kernel/string.o
+KERNEL_OBJS = multiboot_header.o kernel/kernel.o kernel/io.o kernel/memory.o kernel/process.o kernel/filesystem.o kernel/string.o kernel/storage.o kernel/user.o
 
 .PHONY: all clean run
 
@@ -33,6 +33,12 @@ kernel/filesystem.o: kernel/filesystem.c kernel/filesystem.h
 kernel/string.o: kernel/string.c kernel/string.h
 	$(CC) $(CFLAGS) -c -o kernel/string.o kernel/string.c
 
+kernel/storage.o: kernel/storage.c kernel/storage.h
+	$(CC) $(CFLAGS) -c -o kernel/storage.o kernel/storage.c
+
+kernel/user.o: kernel/user.c kernel/user.h
+	$(CC) $(CFLAGS) -c -o kernel/user.o kernel/user.c
+
 kernel.elf: $(KERNEL_OBJS)
 	$(LD) $(LDFLAGS) -o kernel.elf $(KERNEL_OBJS)
 
@@ -49,4 +55,4 @@ run: os.iso
 	qemu-system-i386 -cdrom os.iso -m 32
 
 clean:
-	rm -rf *.bin *.elf *.iso *.o iso kernel/*.o kernel/*.bin 
+	rm -rf *.bin *.elf *.iso *.o iso kernel/*.o kernel/*.bin userlib/*.o 

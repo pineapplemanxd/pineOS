@@ -2,6 +2,7 @@
 #define FILESYSTEM_H
 
 #include "memory.h"
+#include "storage.h"
 
 // File system constants
 #define MAX_FILENAME 32
@@ -55,6 +56,11 @@ char* filesystem_get_absolute_path(const char* relative_path);
 char* filesystem_get_parent_path(const char* path);
 char* filesystem_get_filename(const char* path);
 int filesystem_path_exists(const char* path);
+
+// Persistent storage functions
+int filesystem_save_to_storage(storage_device_t* device);
+int filesystem_load_from_storage(storage_device_t* device);
+int filesystem_format_storage(storage_device_t* device);
 
 // Global filesystem instance
 extern filesystem_t fs;

@@ -5,10 +5,13 @@ A simple educational operating system with a custom bootloader, kernel, and in-m
 ## Features
 - Custom bootloader (x86 assembly)
 - Flat binary kernel (C)
-- In-memory filesystem (files and directories)
-- Shell with commands: `ls`, `cd`, `mkdir`, `touch`, `cat`, `echo`, `rm`, `rmdir`, `tree`
+- In-memory filesystem with persistent storage support
+- USB storage device detection and management
+- Shell with commands: `ls`, `cd`, `mkdir`, `touch`, `cat`, `echo`, `rm`, `rmdir`, `tree`, `cp`
+- Storage commands: `storage`, `save`, `load`, `format`
 - Minimal process and memory management
-- Runs in QEMU (x86)
+- Bootable from USB drives
+- Runs in QEMU (x86) and real hardware
 
 ## Requirements
 - GCC (with 32-bit support)
@@ -28,23 +31,32 @@ A simple educational operating system with a custom bootloader, kernel, and in-m
 
 2. **Build the OS:**
    ```sh
-   ./build_simple.sh
+   make os.iso
    ```
    This will:
-   - Build the bootloader (boot/boot.asm)
-   - Build the kernel (kernel/*.c, kernel/kernel_entry.asm)
-   - Create a floppy disk image (`os.img`)
+   - Build the kernel (kernel/*.c)
+   - Create a bootable ISO image (`os.iso`)
 
-3. **Run the OS in QEMU:**
+3. **Create USB-bootable image:**
    ```sh
-   qemu-system-i386 -fda os.img -m 16
+   ./create_usb_simple.sh
+   ```
+   This creates `pineos_usb.img` that can be written to a USB drive.
+
+4. **Run the OS in QEMU:**
+   ```sh
+   qemu-system-i386 -cdrom os.iso -m 32
+   ```
+   Or test the USB image:
+   ```sh
+   qemu-system-i386 -drive file=pineos_usb.img,format=raw -m 32
    ```
    You should see the shell prompt: `> `
 
 ## Usage
 
 - Type `help` to see available commands.
-- Example commands:
+- **File system commands:**
   - `ls` — List directory contents
   - `cd dir` — Change directory
   - `mkdir dir` — Create directory
@@ -54,11 +66,44 @@ A simple educational operating system with a custom bootloader, kernel, and in-m
   - `rm file` — Remove file
   - `rmdir dir` — Remove directory (must be empty)
   - `tree` — Show directory tree
+  - `cp src dest` — Copy file
+- **Storage management commands:**
+  - `storage` — List detected storage devices
+  - `save` — Save current filesystem to USB storage
+  - `load` — Load filesystem from USB storage
+  - `format` — Format USB storage device
+
+## USB Boot Instructions
+
+1. **Create the USB image:**
+   ```sh
+   ./create_usb_simple.sh
+   ```
+
+2. **Write to USB drive:**
+   - **On Linux:**
+     ```sh
+     sudo dd if=pineos_usb.img of=/dev/sdX bs=1M status=progress
+     ```
+     (Replace `/dev/sdX` with your USB device)
+   
+   - **On Windows:**
+     1. Download [Rufus](https://rufus.ie/)
+     2. Select your USB drive
+     3. Choose "DD Image" mode
+     4. Select the `pineos_usb.img` file
+     5. Click START
+
+3. **Boot from USB:**
+   - Insert the USB drive into your laptop
+   - Boot from USB (usually F12 or F2 during startup)
+   - Select the USB drive from the boot menu
 
 ## Special Notes
 - Only lowercase letters, numbers, and some special characters are supported in the shell (see `kernel/io.c` for details).
-- The filesystem is in-memory only (no persistence).
-- The OS is for educational/demo purposes and not intended for real hardware.
+- The filesystem supports both in-memory operation and persistent storage to USB devices.
+- Use `save` command to persist your filesystem to USB storage, and `load` to restore it.
+- The OS is for educational/demo purposes but can run on real hardware via USB boot.
 
 ## Troubleshooting
 - If you see only "Kernel loaded successfully!" and nothing else, check that your kernel is being built as a flat binary and the entry point is correct.

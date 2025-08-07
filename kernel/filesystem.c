@@ -1,6 +1,7 @@
 #include "filesystem.h"
 #include "io.h"
 #include "string.h"
+#include "storage.h"
 
 // Global filesystem instance
 filesystem_t fs;
@@ -492,3 +493,334 @@ int filesystem_cp(const char* src, const char* dest) {
     }
     return result;
 } 
+
+// Simple filesystem format for storage
+// Sector 0: Filesystem header
+// Sector 1+: File entries and data
+
+typedef struct fs_header {
+    char magic[8];           // "PINEFS\0\0"
+    uint32_t version;        // Filesystem version
+    uint32_t total_entries;  // Number of file entries
+    uint32_t data_start;     // First sector for file data
+} fs_header_t;
+
+// Save filesystem to storage device
+int filesystem_save_to_storage(storage_device_t* device) {
+    if (!device) {
+        vga_puts("Error: No storage device specified\n");
+        return -1;
+    }
+    
+    vga_puts("Saving filesystem to ");
+    vga_puts(device->name);
+    vga_puts("...\n");
+    
+    // Create filesystem header
+    fs_header_t header;
+    memory_copy(header.magic, "PINEFS\0\0", 8);
+    header.version = 1;
+    header.total_entries = fs.next_entry;
+    header.data_start = 2; // Start file data at sector 2
+    
+    // Write header to sector 0
+    if (device->write_sector(device, 0, &header) != 0) {
+        vga_puts("Error: Failed to write filesystem header\n");
+        return -1;
+    }
+    
+    // Write file entries to sector 1
+    if (device->write_sector(device, 1, fs.entries) != 0) {
+        vga_puts("Error: Failed to write file entries\n");
+        return -1;
+    }
+    
+    // Write file data starting from sector 2
+    uint32_t current_sector = header.data_start;
+    for (int i = 0; i < fs.next_entry; i++) {
+        if (fs.entries[i].used && fs.entries[i].type == FILE_TYPE_FILE && fs.entries[i].data) {
+            // Calculate sectors needed for this file
+            uint32_t sectors_needed = (fs.entries[i].size + device->sector_size - 1) / device->sector_size;
+            
+            // Write file data
+            for (uint32_t s = 0; s < sectors_needed; s++) {
+                uint8_t sector_data[512] = {0}; // Clear sector
+                uint32_t bytes_to_copy = device->sector_size;
+                uint32_t offset = s * device->sector_size;
+                
+                if (offset + bytes_to_copy > fs.entries[i].size) {
+                    bytes_to_copy = fs.entries[i].size - offset;
+                }
+                
+                if (bytes_to_copy > 0) {
+                    memory_copy(sector_data, fs.entries[i].data + offset, bytes_to_copy);
+                }
+                
+                if (device->write_sector(device, current_sector + s, sector_data) != 0) {
+                    vga_puts("Error: Failed to write file data\n");
+                    return -1;
+                }
+            }
+            
+            current_sector += sectors_needed;
+        }
+    }
+    
+    vga_puts("Filesystem saved successfully\n");
+    return 0;
+}
+
+// Load filesystem from storage device
+int filesystem_load_from_storage(storage_device_t* device) {
+    if (!device) {
+        vga_puts("Error: No storage device specified\n");
+        return -1;
+    }
+    
+    vga_puts("Loading filesystem from ");
+    vga_puts(device->name);
+    vga_puts("...\n");
+    
+    // Read filesystem header with error checking
+    fs_header_t header;
+    memory_set(&header, 0, sizeof(header)); // Initialize header
+    
+    if (device->read_sector(device, 0, &header) != 0) {
+        vga_puts("Error: Failed to read filesystem header\n");
+        return -1;
+    }
+    
+    // Verify magic number
+    if (memory_compare(header.magic, "PINEFS\0\0", 8) != 0) {
+        vga_puts("Error: Invalid filesystem format\n");
+        return -1;
+    }
+    
+    vga_puts("Valid filesystem found, loading...\n");
+    
+    // Validate entry count to prevent buffer overflow
+    if (header.total_entries > MAX_FILES + MAX_DIRS || header.total_entries == 0) {
+        vga_puts("Error: Invalid entry count in saved filesystem\n");
+        return -1;
+    }
+    
+    // Clear existing filesystem entries first
+    memory_set(fs.entries, 0, sizeof(fs.entries));
+    
+    // Read saved entries with bounds checking
+    if (device->read_sector(device, 1, fs.entries) != 0) {
+        vga_puts("Error: Failed to read file entries\n");
+        return -1;
+    }
+    
+    // Set the entry count
+    fs.next_entry = header.total_entries;
+    
+    // Clear all pointers and validate entries
+    for (int i = 0; i < fs.next_entry; i++) {
+        fs.entries[i].parent = 0;
+        fs.entries[i].children = 0;
+        fs.entries[i].next = 0;
+        fs.entries[i].data = 0;
+        
+        // Validate entry data to prevent crashes
+        if (fs.entries[i].used) {
+            // Ensure name is null-terminated
+            fs.entries[i].name[MAX_FILENAME - 1] = '\0';
+            
+            // Validate file size
+            if (fs.entries[i].size > MAX_FILE_SIZE) {
+                fs.entries[i].size = MAX_FILE_SIZE;
+            }
+            
+            // Validate file type
+            if (fs.entries[i].type != FILE_TYPE_FILE && fs.entries[i].type != FILE_TYPE_DIR) {
+                fs.entries[i].used = 0; // Mark as unused if invalid
+            }
+        }
+    }
+    
+    // Find root directory
+    fs.root = 0;
+    for (int i = 0; i < fs.next_entry; i++) {
+        if (fs.entries[i].used && fs.entries[i].type == FILE_TYPE_DIR && 
+            strcmp(fs.entries[i].name, "/") == 0) {
+            fs.root = &fs.entries[i];
+            break;
+        }
+    }
+    
+    if (!fs.root) {
+        vga_puts("Warning: No root directory found, reinitializing...\n");
+        filesystem_init();
+        return 0;
+    }
+    
+    fs.current_dir = fs.root;
+    
+    // Rebuild directory structure safely - first pass: clear all pointers
+    for (int i = 0; i < fs.next_entry; i++) {
+        if (fs.entries[i].used) {
+            fs.entries[i].parent = 0;
+            fs.entries[i].children = 0;
+            fs.entries[i].next = 0;
+        }
+    }
+    
+    // Second pass: rebuild structure by putting all entries as children of root
+    // This is a simplified approach that flattens the directory structure
+    file_entry_t* last_child = 0;
+    for (int i = 0; i < fs.next_entry; i++) {
+        if (fs.entries[i].used && &fs.entries[i] != fs.root) {
+            fs.entries[i].parent = fs.root;
+            
+            if (!fs.root->children) {
+                fs.root->children = &fs.entries[i];
+                last_child = &fs.entries[i];
+            } else if (last_child) {
+                last_child->next = &fs.entries[i];
+                last_child = &fs.entries[i];
+            }
+        }
+    }
+    
+    // Load file data with proper error handling
+    uint32_t current_sector = header.data_start;
+    for (int i = 0; i < fs.next_entry; i++) {
+        if (fs.entries[i].used && fs.entries[i].type == FILE_TYPE_FILE && fs.entries[i].size > 0) {
+            // Validate file size before allocation
+            if (fs.entries[i].size > MAX_FILE_SIZE) {
+                vga_puts("Warning: File too large, truncating\n");
+                fs.entries[i].size = MAX_FILE_SIZE;
+            }
+            
+            // Allocate memory for file data with null check
+            fs.entries[i].data = memory_alloc(MAX_FILE_SIZE);
+            if (!fs.entries[i].data) {
+                vga_puts("Warning: Failed to allocate memory for file: ");
+                vga_puts(fs.entries[i].name);
+                vga_puts("\n");
+                fs.entries[i].size = 0; // Mark as empty if can't allocate
+                continue;
+            }
+            
+            // Initialize allocated memory to prevent garbage data
+            memory_set(fs.entries[i].data, 0, MAX_FILE_SIZE);
+            
+            // Calculate sectors needed with strict bounds checking
+            uint32_t sectors_needed = (fs.entries[i].size + device->sector_size - 1) / device->sector_size;
+            if (sectors_needed > 8) { // Limit to 8 sectors (4KB max)
+                vga_puts("Warning: File too large, limiting to 8 sectors\n");
+                sectors_needed = 8;
+                fs.entries[i].size = 8 * device->sector_size;
+                if (fs.entries[i].size > MAX_FILE_SIZE) {
+                    fs.entries[i].size = MAX_FILE_SIZE;
+                }
+            }
+            
+            // Validate current_sector to prevent reading beyond device
+            if (current_sector + sectors_needed > device->total_sectors) {
+                vga_puts("Warning: File data beyond device capacity, skipping\n");
+                memory_free(fs.entries[i].data);
+                fs.entries[i].data = 0;
+                fs.entries[i].size = 0;
+                continue;
+            }
+            
+            // Read file data with comprehensive error checking
+            int read_success = 1;
+            for (uint32_t s = 0; s < sectors_needed && read_success; s++) {
+                uint8_t sector_data[512];
+                memory_set(sector_data, 0, sizeof(sector_data)); // Initialize sector buffer
+                
+                if (device->read_sector(device, current_sector + s, sector_data) == 0) {
+                    uint32_t bytes_to_copy = device->sector_size;
+                    uint32_t offset = s * device->sector_size;
+                    
+                    // Multiple bounds checks to prevent buffer overflow
+                    if (offset >= MAX_FILE_SIZE) {
+                        vga_puts("Warning: Offset exceeds file buffer\n");
+                        break;
+                    }
+                    if (offset >= fs.entries[i].size) {
+                        break; // Don't read beyond file size
+                    }
+                    if (offset + bytes_to_copy > fs.entries[i].size) {
+                        bytes_to_copy = fs.entries[i].size - offset;
+                    }
+                    if (offset + bytes_to_copy > MAX_FILE_SIZE) {
+                        bytes_to_copy = MAX_FILE_SIZE - offset;
+                    }
+                    
+                    if (bytes_to_copy > 0 && fs.entries[i].data) {
+                        memory_copy(fs.entries[i].data + offset, sector_data, bytes_to_copy);
+                    }
+                } else {
+                    vga_puts("Warning: Failed to read sector ");
+                    // Simple sector number display
+                    uint32_t sector_num = current_sector + s;
+                    char sector_str[16];
+                    int j = 0;
+                    do {
+                        sector_str[j++] = '0' + (sector_num % 10);
+                        sector_num /= 10;
+                    } while (sector_num > 0);
+                    for (int k = j - 1; k >= 0; k--) {
+                        vga_putchar(sector_str[k]);
+                    }
+                    vga_puts("\n");
+                    read_success = 0;
+                }
+            }
+            
+            // If read failed, clean up and mark file as empty
+            if (!read_success) {
+                if (fs.entries[i].data) {
+                    memory_free(fs.entries[i].data);
+                    fs.entries[i].data = 0;
+                }
+                fs.entries[i].size = 0;
+            }
+            
+            current_sector += sectors_needed;
+        }
+    }
+    
+    vga_puts("Filesystem loaded successfully\n");
+    return 0;
+}
+
+// Format storage device with empty filesystem
+int filesystem_format_storage(storage_device_t* device) {
+    if (!device) {
+        vga_puts("Error: No storage device specified\n");
+        return -1;
+    }
+    
+    vga_puts("Formatting ");
+    vga_puts(device->name);
+    vga_puts("...\n");
+    
+    // Create empty filesystem header
+    fs_header_t header;
+    memory_copy(header.magic, "PINEFS\0\0", 8);
+    header.version = 1;
+    header.total_entries = 0;
+    header.data_start = 2;
+    
+    // Write header
+    if (device->write_sector(device, 0, &header) != 0) {
+        vga_puts("Error: Failed to write filesystem header\n");
+        return -1;
+    }
+    
+    // Clear file entries sector
+    uint8_t empty_sector[512] = {0};
+    if (device->write_sector(device, 1, empty_sector) != 0) {
+        vga_puts("Error: Failed to clear file entries\n");
+        return -1;
+    }
+    
+    vga_puts("Storage device formatted successfully\n");
+    return 0;
+}

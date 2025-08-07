@@ -1,20 +1,26 @@
 ENTRY(_start)
 SECTIONS
 {
-    . = 0x1000;
-    .multiboot_header : {
+    . = 0x100000;
+    
+    .multiboot_header : ALIGN(4) {
         *(.multiboot_header)
     }
-    .text : {
+    
+    .text : ALIGN(4) {
         *(.text)
     }
-    .rodata : {
+    
+    .rodata : ALIGN(4) {
         *(.rodata)
     }
-    .data : {
+    
+    .data : ALIGN(4) {
         *(.data)
     }
-    .bss : {
+    
+    .bss : ALIGN(4) {
+        *(COMMON)
         *(.bss)
     }
 } 

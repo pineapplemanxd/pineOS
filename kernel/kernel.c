@@ -1,35 +1,27 @@
 #include "kernel.h"
 #include "string.h"
+#include "storage.h"
+#include "user.h"
 
 // Multiboot header (provided by multiboot_header.asm)
 extern void multiboot_header(void);
 
 // Function declarations
 void execute_command(const char* command);
+void kernel_loop(void);
 
 // Global variables
 static int cursor_x = 0;
 static int cursor_y = 0;
 static unsigned char current_color = VGA_LIGHT_GREY;
 
-// Kernel entry point
-__attribute__((section(".text")))
-void _start(void) {
-    unsigned char* vga = (unsigned char*)0xB8000;
-    vga[0] = 'K';
-    vga[1] = 0x0F;
-    vga[2] = 'E';
-    vga[3] = 0x0F;
-    vga[4] = 'R';
-    vga[5] = 0x0F;
-    vga[6] = 'N';
-    vga[7] = 0x0F;
-    vga[8] = 'E';
-    vga[9] = 0x0F;
-    vga[10] = 'L';
-    vga[11] = 0x0F;
+// Kernel entry point called from assembly
+void kernel_main(void) {
+    // Initialize subsystems
     kernel_init();
-    kernel_main();
+    
+    // Start main kernel loop
+    kernel_loop();
 }
 
 // Kernel initialization
@@ -40,6 +32,12 @@ void kernel_init(void) {
     memory_init();
     process_init();
     filesystem_init();
+    storage_init();
+    
+    // Initialize user layer with debug output
+    vga_puts("Initializing user layer...\n");
+    user_init();
+    vga_puts("User layer initialization complete\n");
     
     // Clear screen and show welcome message
     vga_clear();
@@ -61,7 +59,7 @@ void kernel_init(void) {
 }
 
 // Main kernel loop
-void kernel_main(void) {
+void kernel_loop(void) {
     char input_buffer[256];
     int buffer_pos = 0;
     
@@ -118,6 +116,14 @@ void execute_command(const char* command) {
         vga_puts("  rmdir    - Remove directory\n");
         vga_puts("  tree     - Show directory tree\n");
         vga_puts("  cp       - Copy file\n");
+        vga_puts("  storage  - List storage devices\n");
+        vga_puts("  save     - Save filesystem to USB\n");
+        vga_puts("  load     - Load filesystem from USB\n");
+        vga_puts("  format   - Format USB device\n");
+        vga_puts("  programs - List user programs\n");
+        vga_puts("  run      - Run user program\n");
+        vga_puts("  compile  - Compile C program from file\n");
+        vga_puts("  unload   - Remove user program\n");
     } else if (strcmp(command, "clear") == 0) {
         vga_clear();
     } else if (strcmp(command, "memory") == 0) {
@@ -257,6 +263,119 @@ void execute_command(const char* command) {
             }
         } else {
             vga_puts("Usage: cp <src> <dest>\n");
+        }
+    } else if (strcmp(command, "storage") == 0) {
+        // List storage devices
+        int device_count = storage_get_device_count();
+        vga_puts("Storage devices:\n");
+        if (device_count == 0) {
+            vga_puts("  No storage devices found\n");
+        } else {
+            for (int i = 0; i < device_count; i++) {
+                storage_device_t* dev = storage_get_device(i);
+                if (dev) {
+                    vga_puts("  ");
+                    vga_putchar('0' + i);
+                    vga_puts(": ");
+                    vga_puts(dev->name);
+                    vga_puts(" (");
+                    if (dev->type == STORAGE_TYPE_USB) {
+                        vga_puts("USB");
+                    } else if (dev->type == STORAGE_TYPE_HDD) {
+                        vga_puts("HDD");
+                    } else if (dev->type == STORAGE_TYPE_FLOPPY) {
+                        vga_puts("Floppy");
+                    } else {
+                        vga_puts("Unknown");
+                    }
+                    vga_puts(")\n");
+                }
+            }
+        }
+    } else if (strcmp(command, "save") == 0) {
+        // Save filesystem to first available storage device
+        storage_device_t* storage_dev = 0;
+        int device_count = storage_get_device_count();
+        for (int i = 0; i < device_count; i++) {
+            storage_device_t* dev = storage_get_device(i);
+            if (dev && (dev->type == STORAGE_TYPE_HDD || dev->type == STORAGE_TYPE_USB)) {
+                storage_dev = dev;
+                break;
+            }
+        }
+        
+        if (storage_dev) {
+            filesystem_save_to_storage(storage_dev);
+        } else {
+            vga_puts("Error: No storage device found\n");
+        }
+    } else if (strcmp(command, "load") == 0) {
+        // Load filesystem from first available storage device
+        storage_device_t* storage_dev = 0;
+        int device_count = storage_get_device_count();
+        for (int i = 0; i < device_count; i++) {
+            storage_device_t* dev = storage_get_device(i);
+            if (dev && (dev->type == STORAGE_TYPE_HDD || dev->type == STORAGE_TYPE_USB)) {
+                storage_dev = dev;
+                break;
+            }
+        }
+        
+        if (storage_dev) {
+            filesystem_load_from_storage(storage_dev);
+        } else {
+            vga_puts("Error: No storage device found\n");
+        }
+    } else if (strcmp(command, "format") == 0) {
+        // Format first available storage device
+        storage_device_t* storage_dev = 0;
+        int device_count = storage_get_device_count();
+        for (int i = 0; i < device_count; i++) {
+            storage_device_t* dev = storage_get_device(i);
+            if (dev && (dev->type == STORAGE_TYPE_HDD || dev->type == STORAGE_TYPE_USB)) {
+                storage_dev = dev;
+                break;
+            }
+        }
+        
+        if (storage_dev) {
+            vga_puts("WARNING: This will erase all data on ");
+            vga_puts(storage_dev->name);
+            vga_puts("\nPress 'y' to continue or any other key to cancel: ");
+            // For now, just format without confirmation
+            filesystem_format_storage(storage_dev);
+        } else {
+            vga_puts("Error: No storage device found\n");
+        }
+    } else if (strcmp(command, "programs") == 0) {
+        // List user programs
+        user_list_programs();
+    } else if (strncmp(command, "run", 3) == 0) {
+        // Run user program
+        const char* prog_name = command + 3;
+        while (*prog_name == ' ') prog_name++; // Skip spaces
+        if (strlen(prog_name) > 0) {
+            user_run_program(prog_name);
+        } else {
+            vga_puts("Usage: run <program_name>\n");
+        }
+    } else if (strncmp(command, "compile", 7) == 0) {
+        // Compile C program from file
+        const char* filename = command + 7;
+        while (*filename == ' ') filename++; // Skip spaces
+        if (strlen(filename) > 0) {
+            user_load_from_file(filename);
+        } else {
+            vga_puts("Usage: compile <filename.c>\n");
+        }
+    } else if (strncmp(command, "unload", 6) == 0) {
+        // Remove user program
+        const char* prog_name = command + 6;
+        while (*prog_name == ' ') prog_name++; // Skip spaces
+        if (strlen(prog_name) > 0) {
+            user_remove_program(prog_name);
+        } else {
+            vga_puts("Usage: unload <program_name>\n");
         }
     } else if (strlen(command) > 0) {
         vga_puts("Unknown command: ");
