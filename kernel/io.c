@@ -55,6 +55,16 @@ unsigned short inw(unsigned short port) {
     return ret;
 }
 
+void outl(unsigned short port, unsigned int value) {
+    __asm__ volatile ("outl %0, %1" : : "a"(value), "Nd"(port));
+}
+
+unsigned int inl(unsigned short port) {
+    unsigned int ret;
+    __asm__ volatile ("inl %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
 // VGA functions
 void vga_init(void) {
     vga_x = 0;

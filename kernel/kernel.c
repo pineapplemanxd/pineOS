@@ -2,6 +2,9 @@
 #include "string.h"
 #include "storage.h"
 #include "user.h"
+#include "network.h"
+#include "netstack.h"
+#include "pci.h"
 
 // Multiboot header (provided by multiboot_header.asm)
 extern void multiboot_header(void);
@@ -34,10 +37,21 @@ void kernel_init(void) {
     filesystem_init();
     storage_init();
     
+    // Initialize PCI subsystem early
+    vga_puts("Initializing PCI subsystem...\n");
+    pci_init();
+    vga_puts("PCI subsystem initialized\n");
+    
     // Initialize user layer with debug output
     vga_puts("Initializing user layer...\n");
     user_init();
     vga_puts("User layer initialization complete\n");
+    
+    // Initialize networking
+    network_init();
+    
+    // Initialize network stack
+    netstack_init();
     
     // Clear screen and show welcome message
     vga_clear();
@@ -97,6 +111,11 @@ void kernel_loop(void) {
 void execute_command(const char* command) {
     vga_puts("\n");
     
+    // Debug: Show what command we received
+    vga_puts("DEBUG: Received command: '");
+    vga_puts(command);
+    vga_puts("'\n");
+    
     if (strcmp(command, "help") == 0) {
         vga_puts("Available commands:\n");
         vga_puts("  help     - Show this help\n");
@@ -124,6 +143,14 @@ void execute_command(const char* command) {
         vga_puts("  run      - Run user program\n");
         vga_puts("  compile  - Compile C program from file\n");
         vga_puts("  unload   - Remove user program\n");
+        vga_puts("  ifconfig - Show/configure network interfaces\n");
+        vga_puts("  dhcp     - Start DHCP client on interface\n");
+        vga_puts("  wifi     - WiFi management (scan/connect/status)\n");
+        vga_puts("  ping     - Send ICMP ping packets\n");
+        vga_puts("  netstat  - Show network statistics\n");
+        vga_puts("  lspci    - List PCI devices\n");
+        vga_puts("  nslookup - DNS hostname resolution\n");
+        vga_puts("  nettest  - Test complete networking stack\n");
     } else if (strcmp(command, "clear") == 0) {
         vga_clear();
     } else if (strcmp(command, "memory") == 0) {
@@ -377,6 +404,205 @@ void execute_command(const char* command) {
         } else {
             vga_puts("Usage: unload <program_name>\n");
         }
+    } else if (strncmp(command, "ifconfig", 8) == 0) {
+        // Network interface configuration
+        const char* args = command + 8;
+        while (*args == ' ') args++; // Skip spaces
+        
+        if (strlen(args) == 0) {
+            // Show all interfaces
+            network_list_interfaces();
+        } else {
+            // Parse interface name and optional parameters
+            const char* interface = args;
+            while (*args && *args != ' ') args++;
+            
+            char iface_name[16];
+            int name_len = args - interface;
+            if (name_len >= 16) name_len = 15;
+            memory_copy(iface_name, interface, name_len);
+            iface_name[name_len] = '\0';
+            
+            if (*args == ' ') {
+                args++;
+                while (*args == ' ') args++;
+                
+                if (strncmp(args, "up", 2) == 0) {
+                    network_interface_up(iface_name);
+                } else if (strncmp(args, "down", 4) == 0) {
+                    network_interface_down(iface_name);
+                } else {
+                    // Show specific interface config
+                    network_show_config(iface_name);
+                }
+            } else {
+                // Show specific interface config
+                network_show_config(iface_name);
+            }
+        }
+    } else if (strncmp(command, "dhcp", 4) == 0) {
+        // DHCP client
+        const char* interface = command + 4;
+        while (*interface == ' ') interface++; // Skip spaces
+        
+        if (strlen(interface) > 0) {
+            network_start_dhcp(interface);
+        } else {
+            vga_puts("Usage: dhcp <interface>\n");
+            vga_puts("Example: dhcp eth0\n");
+        }
+    } else if (strncmp(command, "wifi", 4) == 0) {
+        // WiFi management
+        const char* args = command + 4;
+        while (*args == ' ') args++; // Skip spaces
+        
+        if (strlen(args) == 0 || strcmp(args, "status") == 0) {
+            wifi_show_status();
+        } else if (strcmp(args, "scan") == 0) {
+            wifi_scan_networks();
+        } else if (strcmp(args, "list") == 0) {
+            wifi_list_networks();
+        } else if (strncmp(args, "connect", 7) == 0) {
+            const char* connect_args = args + 7;
+            while (*connect_args == ' ') connect_args++; // Skip spaces
+            
+            // Parse SSID and optional password
+            const char* ssid = connect_args;
+            while (*connect_args && *connect_args != ' ') connect_args++;
+            
+            char ssid_buf[MAX_SSID_LENGTH];
+            int ssid_len = connect_args - ssid;
+            if (ssid_len >= MAX_SSID_LENGTH) ssid_len = MAX_SSID_LENGTH - 1;
+            memory_copy(ssid_buf, ssid, ssid_len);
+            ssid_buf[ssid_len] = '\0';
+            
+            const char* password = "";
+            if (*connect_args == ' ') {
+                connect_args++;
+                while (*connect_args == ' ') connect_args++;
+                password = connect_args;
+            }
+            
+            if (strlen(ssid_buf) > 0) {
+                wifi_connect(ssid_buf, password);
+            } else {
+                vga_puts("Usage: wifi connect <ssid> [password]\n");
+            }
+        } else if (strcmp(args, "disconnect") == 0) {
+            wifi_disconnect();
+        } else {
+            vga_puts("WiFi commands:\n");
+            vga_puts("  wifi status              - Show WiFi status\n");
+            vga_puts("  wifi scan                - Scan for networks\n");
+            vga_puts("  wifi list                - List found networks\n");
+            vga_puts("  wifi connect <ssid> [pw] - Connect to network\n");
+            vga_puts("  wifi disconnect          - Disconnect from network\n");
+        }
+    } else if (strncmp(command, "ping", 4) == 0) {
+        // Ping utility
+        const char* args = command + 4;
+        while (*args == ' ') args++; // Skip spaces
+        
+        if (strlen(args) > 0) {
+            // Parse target and optional count
+            const char* target = args;
+            while (*args && *args != ' ') args++;
+            
+            char target_buf[64];
+            int target_len = args - target;
+            if (target_len >= 64) target_len = 63;
+            memory_copy(target_buf, target, target_len);
+            target_buf[target_len] = '\0';
+            
+            int count = 4; // Default count
+            if (*args == ' ') {
+                args++;
+                while (*args == ' ') args++;
+                if (*args >= '1' && *args <= '9') {
+                    count = *args - '0';
+                }
+            }
+            
+            ping(target_buf, count);
+        } else {
+            vga_puts("Usage: ping <target> [count]\n");
+            vga_puts("Example: ping 8.8.8.8 3\n");
+        }
+    } else if (strcmp(command, "netstat") == 0) {
+        // Network statistics
+        network_show_stats();
+    } else if (strcmp(command, "lspci") == 0) {
+        // List PCI devices
+        vga_puts("DEBUG: lspci command detected, calling pci_list_devices()\n");
+        pci_list_devices();
+    } else if (strcmp(command, "pci") == 0) {
+        // Alternative PCI command
+        vga_puts("DEBUG: pci command detected, calling pci_list_devices()\n");
+        pci_list_devices();
+    } else if (strncmp(command, "nslookup", 8) == 0) {
+        // DNS hostname resolution
+        const char* hostname = command + 8;
+        while (*hostname == ' ') hostname++; // Skip spaces
+        
+        if (strlen(hostname) > 0) {
+            ip_address_t result;
+            if (network_dns_resolve(hostname, &result) == 0) {
+                char ip_str[MAX_IP_STRING];
+                ip_to_string(&result, ip_str);
+                vga_puts("Name: ");
+                vga_puts(hostname);
+                vga_puts("\nAddress: ");
+                vga_puts(ip_str);
+                vga_puts("\n");
+            } else {
+                vga_puts("DNS resolution failed for ");
+                vga_puts(hostname);
+                vga_puts("\n");
+            }
+        } else {
+            vga_puts("Usage: nslookup <hostname>\n");
+            vga_puts("Example: nslookup google.com\n");
+        }
+    } else if (strcmp(command, "nettest") == 0) {
+        // Test complete networking stack
+        vga_puts("Testing complete networking stack...\n");
+        vga_puts("================================\n");
+        
+        // Test 1: Interface status
+        vga_puts("1. Network interfaces:\n");
+        network_list_interfaces();
+        
+        // Test 2: WiFi scan
+        vga_puts("\n2. WiFi scan test:\n");
+        int networks = wifi_scan_networks();
+        if (networks > 0) {
+            wifi_list_networks();
+        }
+        
+        // Test 3: DHCP test
+        vga_puts("\n3. DHCP client test:\n");
+        network_interface_t* eth = network_get_interface("eth0");
+        if (eth) {
+            network_interface_up("eth0");
+            network_real_dhcp("eth0");
+        }
+        
+        // Test 4: DNS resolution test
+        vga_puts("\n4. DNS resolution test:\n");
+        ip_address_t dns_result;
+        if (network_dns_resolve("google.com", &dns_result) == 0) {
+            char ip_str[MAX_IP_STRING];
+            ip_to_string(&dns_result, ip_str);
+            vga_puts("google.com resolved to ");
+            vga_puts(ip_str);
+            vga_puts("\n");
+        }
+        
+        // Test 5: Ping test
+        vga_puts("\n5. ICMP ping test:\n");
+        network_real_ping("8.8.8.8", 3);
+        
+        vga_puts("\nNetworking stack test complete!\n");
     } else if (strlen(command) > 0) {
         vga_puts("Unknown command: ");
         vga_puts(command);
